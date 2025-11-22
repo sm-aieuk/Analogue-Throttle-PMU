@@ -1,49 +1,38 @@
-# ─────────────────────────────────────────────────────────────
-# pmu_can.py — Unified CAN setup for PMU
-# ─────────────────────────────────────────────────────────────
-from pyb import CAN
-from async_can_dual import AsyncCANPort
+# pmu_can.py — PMU CAN manager (patched for async_can_dual)
+# ----------------------------------------------------------
 
-# ─────────────────────────────────────────────────────────────
-# Create and initialize hardware CAN peripherals
-# ─────────────────────────────────────────────────────────────
+from async_can_dual import DualCAN
+from pmu_config import CAN1_BAUD, CAN2_BAUD
 
-# CAN1
-_hwcan1 = CAN(1, CAN.NORMAL)
-_hwcan1.init(
-    CAN.NORMAL,
-    prescaler=6,
-    bs1=11,
-    bs2=2,
-    sjw=1,
-    auto_restart=True
-)
+# Public handles
+can1 = None
+can2 = None
+dual = None
 
-# Accept all standard/extended frames into FIFO0 and FIFO1
-_hwcan1.setfilter(0, CAN.MASK32, 0, (0, 0))
-_hwcan1.setfilter(1, CAN.MASK32, 1, (0, 0))
 
-# CAN2
-_hwcan2 = CAN(2, CAN.NORMAL)
-_hwcan2.init(
-    CAN.NORMAL,
-    prescaler=6,
-    bs1=11,
-    bs2=2,
-    sjw=1,
-    auto_restart=True
-)
+def init_can():
+    """
+    Initialise both CAN buses using the new DualCAN driver.
+    Creates:
+        pmu_can.can1
+        pmu_can.can2
+    """
+    global can1, can2, dual
 
-# Accept all standard/extended frames into FIFO0 and FIFO1
-_hwcan2.setfilter(0, CAN.MASK32, 0, (0, 0))
-_hwcan2.setfilter(1, CAN.MASK32, 1, (0, 0))
+    # Create the dual CAN wrapper (this creates both AsyncCANPort instances)
+    dual = DualCAN(CAN1_BAUD, CAN2_BAUD)
 
-# ─────────────────────────────────────────────────────────────
-# Wrap both hardware CANs with AsyncCANPort (shared handles)
-# ─────────────────────────────────────────────────────────────
-can1 = AsyncCANPort(1, debug=False, hwcan=_hwcan1)
-can2 = AsyncCANPort(2, debug=False, hwcan=_hwcan2)
+    # Expose can1/can2 as public module attributes
+    can1 = dual.can1
+    can2 = dual.can2
 
-print("pmu_can.py loaded successfully — CAN1 and CAN2 initialized.")
-print("CAN1 object id:", id(_hwcan1))
-print("CAN2 object id:", id(_hwcan2))
+    return can1, can2
+
+
+async def start_can():
+    """
+    Starts the async decode tasks for CAN1 and CAN2.
+    Must be awaited once during system startup (in main.py).
+    """
+    global dual
+    await dual.start()

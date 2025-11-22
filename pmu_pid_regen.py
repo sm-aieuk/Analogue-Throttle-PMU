@@ -1,41 +1,42 @@
-# pmu_pid_regen.py  –  regenerative charging control
+# pmu_pid_regen.py — IO throttle PID version, patched
 import uasyncio as asyncio
-from pmu_preactor_standalone import run as precharge_run
-from pmu_preactor_gpio import set_mode, set_target
-from pid import PID   # your existing simple PID class
+from pmu_throttle import set_throttle_voltage
+from pmu_config import DATA
+from time import ticks_ms, ticks_diff
 
-CONFIG_PID = {
-    "target_voltage": 52.0,
-    "kp": 1.0,
-    "ki": 0.02,
-    "kd": 0.0,
-    "interval_ms": 100,
-    "min_torque": -5.0,
-    "max_torque": -50.0,
-}
+KP = 0.012
+KI = 0.0
+KD = 0.0
 
-async def run(can, D, lcd=None, keypoll=None):
-    await precharge_run(can, D, lcd, keypoll, wait_for_user=False)
+TARGET_RPM = 2500
 
+async def run(can, DATA, lcd=None):
 
-    await set_mode(can, "torque")
-    await lcd.set_cursor(0, 0)
-    await lcd.write_string("PID REGEN MODE   ")
+    print("PID-REGEN: starting IO throttle PID loop")
 
-    pid = PID(CONFIG_PID["kp"], CONFIG_PID["ki"], CONFIG_PID["kd"],
-              setpoint=CONFIG_PID["target_voltage"])
-    pid.output_limits = (CONFIG_PID["min_torque"], CONFIG_PID["max_torque"])
+    integral = 0
+    last_err = 0
+    last_ms = ticks_ms()
 
     while True:
-        vb = getattr(D, "battery_v", 0.0)
-        tq = pid(vb)
-        await set_target(can, "torque", tq)
-        await lcd.set_cursor(1, 0)
-        await lcd.write_string("Vb:%5.1f Tq:%5.1f" % (vb, tq))
-        if keypoll and keypoll().get("MENU"):
-            break
-        await asyncio.sleep_ms(CONFIG_PID["interval_ms"])
 
-    await set_target(can, "torque", 0)
-    await lcd.set_cursor(3, 0)
-    await lcd.write_string("PID STOP MENU=EXIT")
+        rpm = getattr(DATA, "velocity", 0)
+        err = TARGET_RPM - rpm
+
+        now = ticks_ms()
+        dt = max(1, ticks_diff(now, last_ms))
+        last_ms = now
+
+        integral += err * dt
+        deriv = (err - last_err) / dt
+        last_err = err
+
+        u = KP * err + KI * integral + KD * deriv
+
+        volts = 4.0 + u
+        volts = max(4.0, min(9.0, volts))
+
+        await set_throttle_voltage(volts)
+        print("PID: rpm=%d  V=%.2f" % (rpm, volts))
+
+        await asyncio.sleep_ms(50)
