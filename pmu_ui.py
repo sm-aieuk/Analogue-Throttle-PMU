@@ -1,9 +1,17 @@
+#test change
+''' PMU UI module
+Provides LCD menu and status display for PMU system.
+'''
+
+
 import uasyncio as asyncio
 from machine import Pin
 import sys
 
 from pmu_config import DATA
-from pmu_can import CAN1, CAN2
+# Import lowercase handles from pmu_can and alias to CAN1/CAN2 for UI module
+from pmu_can import can1 as CAN1, can2 as CAN2
+
 
 # -------------------------------------------------------------------
 # BUTTON QUEUE (SYNC → not awaited)
@@ -159,6 +167,7 @@ async def _run_mode(sel, lcd):
             await crank(DATA, CAN1, lcd)
         elif sel == "PID Regen":
             from pmu_pid_regen import run as pid
-            await pid(CAN1, DATA, lcd(lcd))
+            await pid(CAN1, DATA, lcd)
+
     except Exception as e:
         print("UI mode error:", sel, e)

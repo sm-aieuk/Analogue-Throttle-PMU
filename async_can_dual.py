@@ -152,3 +152,23 @@ class DualCAN:
         import uasyncio as asyncio
         asyncio.create_task(self.can1.decode_task())
         asyncio.create_task(self.can2.decode_task())
+
+
+# ----------------------------------------------------------------------
+# SYNC generator (required by Sevcon Gen4)
+# ----------------------------------------------------------------------
+import uasyncio as asyncio
+
+async def sync_task(can_port, period_ms=20):
+    """
+    Periodic SYNC generator.
+    Sends 0x80 (SYNC) every period_ms.
+    """
+    while True:
+        try:
+            # COB-ID 0x080, empty data
+            can_port.tx(0x80, b'')
+        except:
+            pass
+        await asyncio.sleep_ms(period_ms)
+

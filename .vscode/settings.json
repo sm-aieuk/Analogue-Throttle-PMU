@@ -1,0 +1,31 @@
+{
+    "python.defaultInterpreterPath": "python",
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/stubs"
+    ],
+    "python.autoComplete.extraPaths": [
+        "${workspaceFolder}/stubs"
+    ],
+    "python.analysis.useLibraryCodeForTypes": false,
+    "editor.formatOnSave": true,
+    "python.formatting.provider": "black",
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.rulers": [
+        80
+    ],
+    "editor.wordWrap": "on",
+    "editor.smoothScrolling": true,
+    "files.trimTrailingWhitespace": true,
+    "files.trimFinalNewlines": true,
+    "files.insertFinalNewline": true,
+    "github.copilot.enable": {
+        "*": true
+    },
+    "editor.inlineSuggest.enabled": true,
+    "chatgptGPT.enableWorkspaceContext": true,
+    "files.associations": {
+        "*.py": "python"
+    }
+}

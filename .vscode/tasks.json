@@ -1,0 +1,60 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Stop MicroPython",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/stop_repl.ps1"
+            ],
+            "presentation": {
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Upload Changed Files + Run",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/upload_changed.ps1"
+            ],
+            "presentation": {
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Upload ALL Files + Run",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/upload_all.ps1"
+            ],
+            "presentation": {
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Open REPL",
+            "type": "process",
+            "command": "C:\\Users\\stuartm\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\mpremote.exe",
+            "args": [
+                "connect",
+                "COM3",
+                "repl"
+            ],
+            "presentation": {
+                "panel": "new"
+            }
+        }
+    ]
+}

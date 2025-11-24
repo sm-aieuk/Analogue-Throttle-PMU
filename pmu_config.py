@@ -125,13 +125,14 @@ class PMUData:
         self.gen4_emcy = None
 
         # Subsystems
-        self.adc_mgr = ADCManager()
+        self.adc_mgr = ADCManager(self)
         self.lcd = None
         self.logger = None
 
         # Timestamps
         self.gen4_last_hb_ms = 0
         self.gen4_last_pdo_ms = 0
+
 
 
     def snapshot(self):
