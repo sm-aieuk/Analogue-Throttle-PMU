@@ -55,6 +55,7 @@ class PMUData:
 
         "motor_temp", "batt_current",
         "torque_cmd", "torque_act",
+        "sevcon_rpm",
 
         "vel_max", "velocity",
 
@@ -113,6 +114,7 @@ class PMUData:
 
         self.vel_max = 0
         self.velocity = 0
+        self.sevcon_rpm = 0
 
         # Errors
         self.fault_active = 0

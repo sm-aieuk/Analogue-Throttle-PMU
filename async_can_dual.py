@@ -73,31 +73,11 @@ class AsyncCANPort:
         except:
             pass
 
-        # Install filters
-        if filter_type == "CAN1":
-            configure_can1_filters(self.hwcan)
-        else:
-            configure_can2_filters(self.hwcan)
-
-        # Enable IRQ on FIFO0
-        self.hwcan.rxcallback(0, self._irq_handler)
-
+ 
         # Whether TX is blocked (used by crank code)
-        self.tx_blocked = False
+        self.tx_blocked = False 
 
-    # ------------------------------------------------------------------
-    # IRQ handler (FIFO0 receive)
-    # ------------------------------------------------------------------
-    def _irq_handler(self, can_obj, reason):
-        # Drain FIFO0 until empty
-        try:
-            while can_obj.any(0):
-                (can_id, is_rtr, fmi, data) = can_obj.recv(0)
-                t = ms()
-                self.rx_fifo.push(can_id, data, t)
-        except:
-            # IRQ must NEVER crash
-            pass
+       
 
     # ------------------------------------------------------------------
     # Check if new frames are available
@@ -105,11 +85,25 @@ class AsyncCANPort:
     def rx_ready(self):
         return not self.rx_fifo.empty()
 
+
+    def _push_frame(self, frame):
+        try:
+            can_id = frame[0]
+            data   = frame[4]
+            dlc    = len(data)
+            ts     = ms()
+            self.rx_fifo.put((can_id, dlc, data, ts))
+        except Exception as e:
+            print("PUSHFRAME ERROR:", e, frame)
+
+
+
+
     # ------------------------------------------------------------------
     # Get next frame (or None)
     # ------------------------------------------------------------------
     def read_frame(self):
-        return self.rx_fifo.pop()
+        return self.rx_fifo.get()
 
     # ------------------------------------------------------------------
     # Transmit CAN frame
@@ -130,13 +124,25 @@ class AsyncCANPort:
     async def decode_task(self):
         import uasyncio as asyncio
         while True:
-            # Drain entire buffer every tick
+
+            # POLL FIFO0
+            while self.hwcan.any(0):
+                raw = self.hwcan.recv(0)
+                self._push_frame(raw)
+
+            # POLL FIFO1
+            while self.hwcan.any(1):
+                raw = self.hwcan.recv(1)
+                self._push_frame(raw)
+
+            # PROCESS RINGBUFFER
             while not self.rx_fifo.empty():
-                f = self.rx_fifo.pop()
-                if f:
-                    (cid, data, ts) = f
-                    decode_frame(cid, data, ts)
+                slot = self.rx_fifo.get()    # returns CANFrame object
+                if slot:
+                    decode_frame(slot.id, slot.data, slot.timestamp)
+
             await asyncio.sleep_ms(1)
+
 
 
 # ======================================================================
@@ -171,4 +177,3 @@ async def sync_task(can_port, period_ms=20):
         except:
             pass
         await asyncio.sleep_ms(period_ms)
-

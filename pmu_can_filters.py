@@ -20,36 +20,8 @@ GEN4_HEARTBEAT = 0x701
 SYNC_ID = 0x80  # Optional RX
 
 def configure_can1_filters(can1):
-    """
-    Install ~6 hardware filters for Gen4 + BMS + ECU.
-    Extend as you add BMS/ECU IDs.
-    """
-    bank = 0
-
-    # GEN4 TPDOs
-    can1.setfilter(bank, CAN.LIST16, 0,
-                   (GEN4_IDS[0], GEN4_IDS[1], GEN4_IDS[2], GEN4_IDS[3]))
-    bank += 1
-
-    # GEN4 SDO reply
-    can1.setfilter(bank, CAN.LIST16, 0,
-                   (GEN4_SDO_REPLY, 0, 0, 0))
-    bank += 1
-
-    # GEN4 heartbeat
-    can1.setfilter(bank, CAN.LIST16, 0,
-                   (GEN4_HEARTBEAT, 0, 0, 0))
-    bank += 1
-
-    # SYNC (optional)
-    can1.setfilter(bank, CAN.LIST16, 0,
-                   (SYNC_ID, 0, 0, 0))
-    bank += 1
-
-    # Add BMS / ECU filters here as you define them
-    # can1.setfilter(bank, ...)
-    # bank += 1
-
+    print("DEBUG: Wide-open CAN1 filter")
+    can1.setfilter(0, CAN.MASK16, 0, (0, 0, 0, 0))
 
 def configure_can2_filters(can2, customer_ids=None):
     """

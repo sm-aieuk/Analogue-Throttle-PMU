@@ -10,7 +10,7 @@ import sys
 
 from pmu_config import DATA
 # Import lowercase handles from pmu_can and alias to CAN1/CAN2 for UI module
-from pmu_can import can1 as CAN1, can2 as CAN2
+import pmu_can 
 
 
 # -------------------------------------------------------------------
@@ -161,13 +161,13 @@ async def _run_mode(sel, lcd):
     try:
         if sel == "Precharge Test":
             from pmu_preactor_standalone import run as pre
-            await pre(DATA, CAN1, lcd)
+            await pre(DATA, pmu_can.CAN1, lcd)
         elif sel == "Crank Engine":
             from pmu_crank_io import run as crank
-            await crank(DATA, CAN1, lcd)
+            await crank(DATA, pmu_can.CAN1, lcd)
         elif sel == "PID Regen":
             from pmu_pid_regen import run as pid
-            await pid(CAN1, DATA, lcd)
+            await pid(pmu_can.CAN1, DATA, lcd)
 
     except Exception as e:
         print("UI mode error:", sel, e)

@@ -88,10 +88,8 @@ except:
 async def run(DATA, can, lcd=None):
     print("PRECHARGE: begin")
 
-   # ─────────────────────────────────────────────
-    # 0. Make sure throttle is at NEUTRAL (4.0 V)
-    #    BEFORE we key the Sevcon on
-    # ─────────────────────────────────────────────
+
+        # Set throttle to neutral
     try:
         await set_throttle_voltage(4.0)   # or whatever your neutral is
         print("Setting throttle to 4V at start")

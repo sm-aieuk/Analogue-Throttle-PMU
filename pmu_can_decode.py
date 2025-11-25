@@ -100,6 +100,26 @@ def decode_frame(can_id, data, t_ms):
         DATA.gen4_last_pdo_ms = t_ms
         return
 
+    # -------------------------------------------------------------------------
+    # TPDO5 – Actual Velocity (COB-ID 0x154)
+    # -------------------------------------------------------------------------
+    if can_id == 0x154:
+        # Expect 8 bytes:
+        #  [0..3] = Max velocity  (unused)
+        #  [4..7] = Actual velocity (int32 signed)
+        if len(data) >= 8:
+            try:
+                # MicroPython requires positional args only
+                vel_raw = int.from_bytes(data[4:8], "little", True)
+                DATA.sevcon_rpm = vel_raw
+                #print(DATA.sevcon_rpm)
+
+            except Exception as e:
+                print("TPDO5 decode error:", e)
+        return
+
+
+
     # --------------------------------------------------------
     # Sync — 0x000
     # (not always used)

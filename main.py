@@ -3,14 +3,14 @@
 
 import uasyncio as asyncio
 import time
-
-
+import pmu_can
 
 import pmu_ui
 import pmu_preactor_standalone
 import pmu_crank_io
 import pmu_pid_regen
 import customer_can
+import pmu_config
 
 from pmu_config import (
     DATA,
@@ -19,11 +19,6 @@ from pmu_config import (
     STATE_COAST,
     STATE_REGEN,
 )
-
-
-
-
-from pmu_can import init_can, start_can
 
 from async_can_dual import sync_task
 from pmu_supervisor_can import gen4_supervisor
@@ -40,184 +35,169 @@ FORCE_CRANK_AT_BOOT  = True
 FORCE_PID_AT_BOOT    = False
 
 
-# -----------------------------------------------------------------------------------
-# Global objects
-# -----------------------------------------------------------------------------------
-DATA.lcd = NHD_0420D3Z_I2C()     # LCD object for UI and status
-pmu_state = STATE_WAITING        # The main PMU state machine state
+# ----------------------------------------------------------------------------
+# GLOBAL OBJECTS
+# ----------------------------------------------------------------------------
+DATA.lcd = NHD_0420D3Z_I2C()
+DATA.state = STATE_WAITING
 
 
-# -----------------------------------------------------------------------------------
-# Customer CAN2 Handler (Mode Select Commands)
-# -----------------------------------------------------------------------------------
-async def customer_can_handler():
-    """
-    Listen on CAN2 for customer commands:
-        0x01 = START ENGINE (CRANK)
-        0x02 = ENTER REGEN MODE
-        0x03 = ABORT → Return to WAITING
-    """
-    global pmu_state
 
+async def raw_can_debug(can_hw):
     while True:
-        cmd = customer_can.poll_command()
+        try:
+            if can_hw.any(0):
+                print("PMU FIFO0:", can_hw.recv(0))
+            if can_hw.any(1):
+                print("PMU FIFO1:", can_hw.recv(1))
+        except Exception as e:
+            print("RAW DEBUG ERROR:", e)
+        await asyncio.sleep_ms(5)
 
-        if cmd == 0x01:
-            pmu_state = STATE_CRANK
 
-        elif cmd == 0x02:
-            pmu_state = STATE_REGEN
-
-        elif cmd == 0x03:
-            pmu_state = STATE_WAITING
-
+# ----------------------------------------------------------------------------
+# CUSTOMER CAN2 HANDLER
+# ----------------------------------------------------------------------------
+async def customer_can_handler():
+    
+    while True:
+        try:
+            cmd = customer_can.poll_command()
+            if cmd == 0x01:
+                DATA.state = STATE_CRANK
+            elif cmd == 0x02:
+                DATA.state = STATE_REGEN
+            elif cmd == 0x03:
+                DATA.state = STATE_WAITING
+        except Exception as e:
+            print("Customer CAN handler error:", e)
         await asyncio.sleep_ms(50)
 
 
-# -----------------------------------------------------------------------------------
-# AUTO PMU STATE MACHINE
-# WAITING → CRANK → COAST → PID → WAITING
-# -----------------------------------------------------------------------------------
-async def pmu_fsm():
 
-    global pmu_state
+# ----------------------------------------------------------------------------
+# PMU FSM
+# ----------------------------------------------------------------------------
+async def pmu_fsm(CAN1_PORT):
+
+    
 
     while True:
-
-        if pmu_state == STATE_WAITING:
+        print("Got here 1")
+        if DATA.state == STATE_WAITING:
             DATA.state = STATE_WAITING
             await asyncio.sleep_ms(100)
             continue
 
-        # -------------------------------
-        # CRANK
-        # -------------------------------
-        if pmu_state == STATE_CRANK:
+        # ---------------- CRANK ----------------
+        if DATA.state == STATE_CRANK:
             print("FSM: Starting CRANK sequence")
             DATA.state = STATE_CRANK
-
+            print("Got here")
+            # Precharge (external)
             if DATA.dc_bus_v < (0.85 * DATA.battery_v):
                 print("FSM: Running precharge first")
-                await pmu_preactor_standalone.run(DATA, CAN1, DATA.lcd)
+                await pmu_preactor_standalone.run(DATA, CAN1_PORT, DATA.lcd)
 
-            await pmu_crank_io.run(DATA, CAN1, DATA.lcd)
+            # Crank sequence
+            await pmu_crank_io.run(DATA, CAN1_PORT, DATA.lcd)
 
             print("FSM: Crank complete → transition to COAST")
-            pmu_state = STATE_COAST
+            DATA.state = STATE_COAST
             continue
 
-        # -------------------------------
-        # COAST
-        # -------------------------------
-        if pmu_state == STATE_COAST:
+        # ---------------- COAST ----------------
+        if DATA.state == STATE_COAST:
             print("FSM: COAST mode — letting RPM stabilise")
             DATA.state = STATE_COAST
             await asyncio.sleep_ms(1500)
-            pmu_state = STATE_REGEN
+            DATA.state = STATE_REGEN
             continue
 
-        # -------------------------------
-        # REGEN PID
-        # -------------------------------
-        if pmu_state == STATE_REGEN:
+        # ---------------- REGEN ----------------
+        if DATA.state == STATE_REGEN:
             print("FSM: ENTER PID REGEN")
             DATA.state = STATE_REGEN
 
-            await pmu_pid_regen.run(CAN1, DATA, DATA.lcd)
+            await pmu_pid_regen.run(CAN1_PORT, DATA, DATA.lcd)
 
-            pmu_state = STATE_WAITING
+            DATA.state = STATE_WAITING
             continue
 
-        pmu_state = STATE_WAITING
+        DATA.state = STATE_WAITING
         await asyncio.sleep_ms(100)
 
 
-
-# -----------------------------------------------------------------------------------
-# MAIN ENTRY POINT
-# -----------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# MAIN ENTRY
+# ----------------------------------------------------------------------------
 async def main():
+   
+    print("Starting CAN1/CAN2…")
+    CAN1_PORT, CAN2_PORT = await pmu_can.start_can()
+    print("CAN tasks started.")
+    
+    print("Starting Customer Task…")
+    asyncio.create_task(customer_can.publisher_task(CAN2_PORT))
 
-    global CAN1, CAN2
-    global pmu_state
+#debugging canbus 
+    #asyncio.create_task(raw_can_debug(CAN1_PORT.hwcan))
 
-    # ------------------------------------------------------------------
-    # 1. Initialize CAN hardware
-    # ------------------------------------------------------------------
-    CAN1, CAN2 = init_can()
 
-    # ------------------------------------------------------------------
-    # 2. Start CAN RX & decode tasks
-    # ------------------------------------------------------------------
-    await start_can()
 
-    # ------------------------------------------------------------------
-    # 3. Start SYNC generator (GEN4 requires this)
-    # ------------------------------------------------------------------
-    asyncio.create_task(sync_task(CAN1, 20))   # 20ms = 50 Hz sync
 
-    # ------------------------------------------------------------------
-    # 4. CAN supervisor (heartbeat + PDO watchdog)
-    # ------------------------------------------------------------------
+
+    # Sync generator
+    print("Starting SYNC task…")
+    asyncio.create_task(sync_task(CAN1_PORT.hwcan, 20))
+
+
+    # Supervisor
+    print("Starting supervisor…")
     asyncio.create_task(gen4_supervisor())
 
-    # ------------------------------------------------------------------
-    # 5. UI task startup
-    # ------------------------------------------------------------------
-    await asyncio.sleep_ms(300)
-    asyncio.create_task(pmu_ui.ui_task(DATA.lcd))
 
-    # ------------------------------------------------------------------
-    # 6. ADC manager
-    # ------------------------------------------------------------------
+    # ADC
+    print("Starting ADC…")
     asyncio.create_task(DATA.adc_mgr.task())
 
-    # ------------------------------------------------------------------
-    # 7. Logger
-    # ------------------------------------------------------------------
+    # Logger
+    print("Starting logger…")
     asyncio.create_task(log_1hz_task())
 
-    # ------------------------------------------------------------------
-    # 8. Customer CAN2 handler
-    # ------------------------------------------------------------------
+    # Customer CAN
+    print("Starting customer CAN…")
     asyncio.create_task(customer_can_handler())
-
-    # ------------------------------------------------------------------
-    # 9. MODE SELECTION at boot
-    # ------------------------------------------------------------------
+    
+    # Boot mode
     if FORCE_PRECHARGE_TEST:
         print("Boot mode: PRECHARGE TEST")
-        asyncio.create_task(pmu_preactor_standalone.run(DATA, CAN1, DATA.lcd))
-        pmu_state = STATE_WAITING
+        asyncio.create_task(pmu_preactor_standalone.run(DATA, CAN1_PORT, DATA.lcd))
 
     elif FORCE_CRANK_AT_BOOT:
         print("Boot mode: CRANK")
-        pmu_state = STATE_CRANK
+        DATA.state = STATE_CRANK
 
     elif FORCE_PID_AT_BOOT:
         print("Boot mode: PID REGEN")
-        pmu_state = STATE_REGEN
+        DATA.state = STATE_REGEN
 
     else:
         print("Boot mode: WAITING")
-        pmu_state = STATE_WAITING
+        DATA.state = STATE_WAITING
 
+    # Start FSM
+    asyncio.create_task(pmu_fsm(CAN1_PORT))
 
-    # ------------------------------------------------------------------
-    # 10. Start PMU FSM
-    # ------------------------------------------------------------------
-    asyncio.create_task(pmu_fsm())
 
     print("PMU System Ready.")
-
-    # ------------------------------------------------------------------
-    # 11. Idle forever
-    # ------------------------------------------------------------------
+ 
+    # Idle forever
     while True:
         await asyncio.sleep_ms(200)
 
 
-# -----------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # BOOT
-# -----------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 asyncio.run(main())
