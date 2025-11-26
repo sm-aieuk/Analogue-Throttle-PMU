@@ -5,20 +5,26 @@ import uasyncio as asyncio
 import time
 import pmu_can
 
+
 import pmu_ui
+
+
 import pmu_preactor_standalone
 import pmu_crank_io
 import pmu_pid_regen
 import customer_can
 import pmu_config
 
+
 from pmu_config import (
     DATA,
     STATE_WAITING,
+    STATE_PRECHARGE,
     STATE_CRANK,
     STATE_COAST,
-    STATE_REGEN,
+    STATE_REGEN
 )
+
 
 from async_can_dual import sync_task
 from pmu_supervisor_can import gen4_supervisor
@@ -31,16 +37,19 @@ from pmu_logger_async import log_1hz_task
 # MODE SELECTION FLAGS (set these for remote testing)
 # --------------------------------------------------------------------
 FORCE_PRECHARGE_TEST = False
-FORCE_CRANK_AT_BOOT  = True
+FORCE_CRANK_AT_BOOT  = False
 FORCE_PID_AT_BOOT    = False
 
 
 # ----------------------------------------------------------------------------
 # GLOBAL OBJECTS
 # ----------------------------------------------------------------------------
-DATA.lcd = NHD_0420D3Z_I2C()
-DATA.state = STATE_WAITING
 
+DATA.state = STATE_WAITING
+# Start menu/UI
+
+
+ 
 
 
 async def raw_can_debug(can_hw):
@@ -80,63 +89,108 @@ async def customer_can_handler():
 # ----------------------------------------------------------------------------
 async def pmu_fsm(CAN1_PORT):
 
-    
+    STATE_NAMES = {
+        STATE_WAITING: "WAIT",
+        STATE_PRECHARGE: "PCHG",
+        STATE_CRANK: "CRNK",
+        STATE_COAST: "COST",
+        STATE_REGEN: "RGN",
+    }
 
     while True:
-        print("Got here 1")
+
+        # Update UI text and request status refresh
+        DATA.state_txt = STATE_NAMES.get(DATA.state, "UNK")
+        DATA.ui_needs_update = True
+
+        # ---------- WAITING ----------
         if DATA.state == STATE_WAITING:
-            DATA.state = STATE_WAITING
             await asyncio.sleep_ms(100)
             continue
 
-        # ---------------- CRANK ----------------
-        if DATA.state == STATE_CRANK:
-            print("FSM: Starting CRANK sequence")
-            DATA.state = STATE_CRANK
-            print("Got here")
-            # Precharge (external)
+        # ---------- PRECHARGE ----------
+        if DATA.state == STATE_PRECHARGE:
+            print("FSM: Precharge start")
+
             if DATA.dc_bus_v < (0.85 * DATA.battery_v):
-                print("FSM: Running precharge first")
                 await pmu_preactor_standalone.run(DATA, CAN1_PORT, DATA.lcd)
 
-            # Crank sequence
+            print("FSM: Precharge done → COAST")
+            DATA.state = STATE_COAST
+            continue
+
+        # ---------- CRANK ----------
+        if DATA.state == STATE_CRANK:
+            print("FSM: Starting CRANK sequence")
+
+            # Ensure precharge
+            if DATA.dc_bus_v < (0.85 * DATA.battery_v):
+                await pmu_preactor_standalone.run(DATA, CAN1_PORT, DATA.lcd)
+
             await pmu_crank_io.run(DATA, CAN1_PORT, DATA.lcd)
 
-            print("FSM: Crank complete → transition to COAST")
+            print("FSM: Crank complete → COAST")
             DATA.state = STATE_COAST
             continue
 
-        # ---------------- COAST ----------------
+        # ---------- COAST ----------
         if DATA.state == STATE_COAST:
             print("FSM: COAST mode — letting RPM stabilise")
-            DATA.state = STATE_COAST
             await asyncio.sleep_ms(1500)
-            DATA.state = STATE_REGEN
             continue
 
-        # ---------------- REGEN ----------------
+        # ---------- REGEN ----------
         if DATA.state == STATE_REGEN:
             print("FSM: ENTER PID REGEN")
-            DATA.state = STATE_REGEN
 
             await pmu_pid_regen.run(CAN1_PORT, DATA, DATA.lcd)
 
             DATA.state = STATE_WAITING
             continue
 
+        # Safety default
         DATA.state = STATE_WAITING
         await asyncio.sleep_ms(100)
 
 
+async def delayed_ui_start():
+    await asyncio.sleep_ms(500)
+    try:
+        await DATA.lcd.clear_screen()
+        await DATA.lcd.set_cursor(0, 0)
+        await DATA.lcd.write_string("PMU Ready")
+    except Exception as e:
+        print("LCD init error:", e)
+
+    DATA.ui_needs_update = True
+    print("Starting UI task now…")
+    asyncio.create_task(pmu_ui.ui_task(DATA.lcd))
+    await asyncio.sleep_ms(5)
+
+    
 # ----------------------------------------------------------------------------
 # MAIN ENTRY
 # ----------------------------------------------------------------------------
 async def main():
-   
+    print("Initialising LCD early…")
+    lcd = NHD_0420D3Z_I2C()
+    DATA.lcd = lcd
+    
+    DATA.ui_button = None
+    DATA.ui_needs_update = True
+
+
+
+
+
     print("Starting CAN1/CAN2…")
     CAN1_PORT, CAN2_PORT = await pmu_can.start_can()
     print("CAN tasks started.")
-    
+
+    DATA.can1 = CAN1_PORT
+    DATA.can2 = CAN2_PORT
+
+
     print("Starting Customer Task…")
     asyncio.create_task(customer_can.publisher_task(CAN2_PORT))
 
@@ -144,12 +198,11 @@ async def main():
     #asyncio.create_task(raw_can_debug(CAN1_PORT.hwcan))
 
 
-
-
-
     # Sync generator
     print("Starting SYNC task…")
     asyncio.create_task(sync_task(CAN1_PORT.hwcan, 20))
+
+
 
 
     # Supervisor
@@ -190,7 +243,13 @@ async def main():
     asyncio.create_task(pmu_fsm(CAN1_PORT))
 
 
+    print("Scheduling UI…")
+    asyncio.create_task(delayed_ui_start())
+
+
     print("PMU System Ready.")
+ 
+ 
  
     # Idle forever
     while True:

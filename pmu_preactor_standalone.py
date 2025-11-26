@@ -8,8 +8,7 @@
 
 import uasyncio as asyncio
 import time
-from machine import I2C
-from ads1x15 import ADS1115
+
 from pmu_throttle import set_throttle_voltage
 
 # ADS scaling
@@ -17,40 +16,6 @@ _LSB_V      = 0.000125   # ADS1115 gain=1
 _VDIV_HV    = 54       # Calibrated HV divider ratio
 _A_PER_V    = 125.0      # LF205 / AMC1311 current scaling
 
-
-_ads49 = None
-_ads48 = None
-
-
-def _init_ads():
-    global _ads49, _ads48
-    if _ads49 is None or _ads48 is None:
-        try:
-            i2c = I2C(1, freq=400000)
-            _ads49 = ADS1115(i2c, address=0x49, gain=1)
-            _ads48 = ADS1115(i2c, address=0x48, gain=1)
-        except Exception as e:
-            print("⚠ ADS init failed:", e)
-
-
-def _read_hv():
-    _init_ads()
-    try:
-        raw = _ads49.read(2, 3)
-        return (raw * _LSB_V) * _VDIV_HV
-    except:
-        return 0.0
-
-
-# Current fallback
-def _read_currents():
-    _init_ads()
-    try:
-        v_load = _ads48.read(0) * _LSB_V
-        v_chg  = _ads48.read(2) * _LSB_V
-        return v_load * _A_PER_V, v_chg * _A_PER_V
-    except:
-        return (None, None)
 
 
 # Precharge control pins
@@ -112,7 +77,8 @@ async def run(DATA, can, lcd=None):
     t0        = time.ticks_ms()
 
     while time.ticks_diff(time.ticks_ms(), t0) < CFG["max_close_ms"]:
-        vdc = _read_hv()
+        # Use async ADCManager values
+        vdc = DATA.battery_v     # from adc_manager.task()
         ratio = vdc / vbatt_nom if vbatt_nom > 1 else 0.0
 
         print("   Vdc=%.2f  ratio=%.3f" % (vdc, ratio))
@@ -126,7 +92,9 @@ async def run(DATA, can, lcd=None):
             print("PRECHARGE COMPLETE\n")
             return
 
+# Yield to allow UI, LCD, CAN tasks to run
         await asyncio.sleep_ms(CFG["close_sample_ms"])
+
 
     # Timeout
     print("⚠ PRECHARGE TIMEOUT")

@@ -29,6 +29,7 @@ STATE_WAITING = const(0)
 STATE_CRANK   = const(1)
 STATE_COAST   = const(2)
 STATE_REGEN   = const(3)
+STATE_PRECHARGE = const(4)
 
 
 # ======================================================
@@ -53,9 +54,9 @@ class PMUData:
 
         "ud", "uq", "mod", "cap_v",
 
-        "motor_temp", "batt_current",
+        "motor_temp", "batt_current", "load_i", "charge_i", "spare_i",
         "torque_cmd", "torque_act",
-        "sevcon_rpm",
+        "sevcon_rpm", "regen_pct",
 
         "vel_max", "velocity",
 
@@ -76,6 +77,13 @@ class PMUData:
         # Timestamps
         "gen4_last_hb_ms",
         "gen4_last_pdo_ms",
+        
+        #Locks
+        "ui_needs_update",
+        "ui_selected",
+        "ui_mode",
+        "ui_button",
+        "state_txt",
     )
 
     # ---------------------------------------------------
@@ -93,8 +101,12 @@ class PMUData:
         self.dc_bus_v = 0
         self.battery_v = 0
         self.battery_i = 0
+        self.load_i = 0
+        self.charge_i =0
+        self.spare_i = 0
         self.gen_torque_nm = 0
         self.gen_power_w = 0
+        self.regen_pct = 0
 
         # TPDO fields
         self.id_target = 0
@@ -134,8 +146,13 @@ class PMUData:
         # Timestamps
         self.gen4_last_hb_ms = 0
         self.gen4_last_pdo_ms = 0
-
-
+        
+        #Locks
+        self.ui_needs_update = False   # LCD should refresh next loop
+        self.ui_selected = 0           # Menu selected row
+        self.ui_mode = STATE_WAITING   # Current UI mode / screen
+        self.ui_button = 0
+        self.state_txt = "WAIT"
 
     def snapshot(self):
         return (

@@ -23,7 +23,7 @@ class ADCManager:
         # ── Scaling constants ─────────────────────────────────────────
         # Adjust this if your meter vs ADC differs (~53.5 gives ~62.7 V true
         # for ~1.17 V ADC reading)
-        self.VDIV_BATT = 53.5
+        self.VDIV_BATT = 100
 
         # LEM LF 205-S/SP3 + 16 Ω burden + AMC1311 (~1 V/V)
         # IS = 0.0005 A/A → 8 mV/A at ADC input.

@@ -1,173 +1,214 @@
-#test change
-''' PMU UI module
-Provides LCD menu and status display for PMU system.
-'''
-
-
+# pmu_ui.py — Async LCD UI with working buttons + menus
 import uasyncio as asyncio
 from machine import Pin
-import sys
-
+import pmu_config
 from pmu_config import DATA
-# Import lowercase handles from pmu_can and alias to CAN1/CAN2 for UI module
-import pmu_can 
 
 
-# -------------------------------------------------------------------
-# BUTTON QUEUE (SYNC → not awaited)
-# -------------------------------------------------------------------
-class SimpleFIFO:
+from pmu_config import (
+    DATA,
+    STATE_WAITING,
+    STATE_PRECHARGE,
+    STATE_CRANK,
+    STATE_COAST,
+    STATE_REGEN
+)
+
+
+# --------------------------------------------------------------------
+# SimpleQueue (because MicroPython has no asyncio.Queue)
+# --------------------------------------------------------------------
+class SimpleQueue:
     def __init__(self):
-        self._buf = []
+        self.buf = []
 
-    def put(self, item):
-        self._buf.append(item)
+    async def put(self, item):
+        self.buf.append(item)
 
-    def get(self):
-        if self._buf:
-            return self._buf.pop(0)
+    async def get(self):
+        if self.buf:
+            return self.buf.pop(0)
         return None
 
     def empty(self):
-        return len(self._buf) == 0
+        return len(self.buf) == 0
 
-# ─── Buttons ──────────────────────────────────────────────────────
+
+# --------------------------------------------------------------------
+# Button pins
+# --------------------------------------------------------------------
 BTN_MENU  = Pin('X20', Pin.IN, Pin.PULL_UP)
 BTN_UP    = Pin('X21', Pin.IN, Pin.PULL_UP)
 BTN_DOWN  = Pin('X19', Pin.IN, Pin.PULL_UP)
 BTN_ENTER = Pin('X18', Pin.IN, Pin.PULL_UP)
 
-def keypoll():
-    return {
-        "MENU": BTN_MENU.value() == 0,
-        "ENT":  BTN_ENTER.value() == 0,
-        "UP":   BTN_UP.value() == 0,
-        "DOWN": BTN_DOWN.value() == 0,
-    }
 
-# ─── Safe LCD line helper ─────────────────────────────────────────
-async def lcd_line(lcd, row, text):
-    try:
-        await lcd.set_cursor(row, 0)
-        await lcd.write_string((str(text) + " " * 20)[:20])
-    except Exception as e:
-        # LCD not ready / transient I2C glitch (ignore)
-        # print("LCD glitch:", e)
-        return
-
-# ─── Menu items ───────────────────────────────────────────────────
-MENU_ITEMS = [
-    "Precharge Test",
-    "Crank Engine",
-    "PID Regen",
-    "BMS Data",
-    "ECU Data",
-    "Inverter Data",
-    "Diagnostics",
-]
-
-# ─── Display routines ─────────────────────────────────────────────
-async def show_status(lcd):
-    try:
-        s = DATA.snapshot()
-        (state, uptime_s, rpm, temp, map_kpa, iat,
-         dc_v, batt_v, batt_i, torque, power,
-         fault, last_emcy) = s
-
-        names = ["WAIT", "CRANK", "COAST", "REGEN"]
-        state_txt = names[state] if state < len(names) else "UNK"
-
-        await lcd_line(lcd, 0, f"PMU:{state_txt:<5} Tq:{torque:>4.0f}")
-        await lcd_line(lcd, 1, f"RPM:{rpm:>5d}  PWR:{power/1000:>4.1f}kW")
-        await lcd_line(lcd, 2, f"Vb:{batt_v:>5.1f}V Ib:{batt_i:>4.0f}A")
-        await lcd_line(lcd, 3, f"FLT:{fault:<3} EMCY:{last_emcy:02X}")
-
-    except Exception as e:
-        # never crash UI
-        # print("UI status error:", e)
-        pass
-
-async def show_menu(lcd, index):
-    await lcd_line(lcd, 0, "   PMU MENU")
-    for i in range(3):
-        line = index + i
-        prefix = ">" if i == 0 else " "
-        text = f"{prefix} {MENU_ITEMS[line]}" if line < len(MENU_ITEMS) else ""
-        await lcd_line(lcd, i + 1, text)
-
-# ─── Button scanning task ─────────────────────────────────────────
-async def button_task(btn_q):
-    last = {"MENU":0, "UP":0, "DOWN":0, "ENT":0}
+# --------------------------------------------------------------------
+# Button polling → queue
+# --------------------------------------------------------------------
+async def button_task(q):
+    last = {"m":1, "u":1, "d":1, "e":1}
 
     while True:
-        k = keypoll()
-        if k["MENU"] and not last["MENU"]:
-            btn_q.put("m")
-        if k["UP"] and not last["UP"]:
-            btn_q.put("u")
-        if k["DOWN"] and not last["DOWN"]:
-            btn_q.put("d")
-        if k["ENT"] and not last["ENT"]:
-            btn_q.put("e")
-        last = k
+        m = BTN_MENU.value()
+        u = BTN_UP.value()
+        d = BTN_DOWN.value()
+        e = BTN_ENTER.value()
+
+        if m == 0 and last["m"] == 1:
+            await q.put("m")
+        if u == 0 and last["u"] == 1:
+            await q.put("u")
+        if d == 0 and last["d"] == 1:
+            await q.put("d")
+        if e == 0 and last["e"] == 1:
+            await q.put("e")
+
+        last["m"] = m
+        last["u"] = u
+        last["d"] = d
+        last["e"] = e
+
         await asyncio.sleep_ms(40)
 
-# ─── Main UI Coroutine ────────────────────────────────────────────
+
+# --------------------------------------------------------------------
+# Local formatting helpers
+# --------------------------------------------------------------------
+def pad(s, width=20):
+    s = str(s)
+    if len(s) < width:
+        return s + (" " * (width - len(s)))
+    return s[:width]
+
+
+def fmt(label, value, unit=""):
+    return f"{label}{value}{unit}"
+
+
+# --------------------------------------------------------------------
+# Status Screen
+# --------------------------------------------------------------------
+async def show_status(lcd):
+
+    await lcd.clear_screen()
+
+    await lcd.set_cursor(0, 0)
+    await lcd.write_string(pad("PMU:" + DATA.state_txt))
+
+    await lcd.set_cursor(1, 0)
+    await lcd.write_string(pad("Batt:" + f"{DATA.battery_v:.1f}V"))
+
+    await lcd.set_cursor(2, 0)
+    await lcd.write_string(pad("Load:" + f"{DATA.load_i:.1f}A"))
+
+    await lcd.set_cursor(3, 0)
+    await lcd.write_string(pad("Chg:" + f"{DATA.battery_i:.1f}A"))
+
+# async def show_status(lcd):
+#     s = DATA.snapshot()
+#     (state, uptime_s, rpm, temp, map_kpa, iat,
+#      dc_v, batt_v, batt_i, torque, power,
+#      fault, last_emcy) = s
+# 
+#     names = ["WAIT", "CRANK", "COAST", "REGEN"]
+#     state_txt = names[state] if state < len(names) else "UNK"
+# 
+#     await lcd_line(0, f"PMU:{state_txt:<5} Tq:{torque:>4.0f}Nm")
+#     await lcd_line(1, f"RPM:{rpm:>5d}  PWR:{power/1000:>4.1f}kW")
+#     await lcd_line(2, f"Vb:{batt_v:>5.1f}V Ib:{batt_i:>4.0f}A")
+#     await lcd_line(3, f"FLT:{fault:<5} EMCY:{last_emcy:02X}")
+# --------------------------------------------------------------------
+# Menu
+# --------------------------------------------------------------------
+MENU = [
+    "Precharge",
+    "Crank Engine",
+    "PID Regen",
+]
+
+async def show_menu(lcd, index):
+    print("Showing Menu")
+    await lcd.clear_screen()
+    await lcd.set_cursor(0, 0)
+    await lcd.write_string("Select Mode:")
+
+    for i, name in enumerate(MENU):
+        prefix = "> " if i == index else "  "
+        await lcd.set_cursor(i+1, 0)
+        await lcd.write_string(pad(prefix + name))
+
+
+# --------------------------------------------------------------------
+# UI Task
+# --------------------------------------------------------------------
 async def ui_task(lcd):
-    print("ui_task entered, lcd=", lcd)
+    print("UI task started — lcd =", lcd)
 
-    # Allow LCD driver to become ready
-    await asyncio.sleep_ms(300)
-
-    btn_q = SimpleFIFO()
-    asyncio.create_task(button_task(btn_q))
-
-    in_menu = False
+    # UI local state
+    menu_active = False
     menu_index = 0
 
+    # Queue for keypresses
+    q = SimpleQueue()
+    asyncio.create_task(button_task(q))
+
+    DATA.ui_mode = STATE_WAITING
+
+    # Draw initial status screen
+    await show_status(lcd)
+    DATA.ui_needs_update = False
+
     while True:
-        # Refresh screen
-        if in_menu:
-            await show_menu(lcd, menu_index)
-        else:
+
+        # FSM requests status-screen update
+        if DATA.ui_needs_update and not menu_active:
             await show_status(lcd)
+            DATA.ui_needs_update = False
 
-        # Handle button events
-        while not btn_q.empty():
-            b = btn_q.get()
+        # Get next button event
+        evt = await q.get()
+        if evt is None:
+            await asyncio.sleep_ms(20)
+            continue
 
-            if b == "m":
-                in_menu = not in_menu
-                await lcd.clear_screen()
+        # ---------- MENU BUTTON ----------
+        if evt == "m":
+            menu_active = not menu_active
 
-            elif in_menu:
-                if b == "u" and menu_index > 0:
-                    menu_index -= 1
-                elif b == "d" and menu_index < len(MENU_ITEMS)-1:
-                    menu_index += 1
-                elif b == "e":
-                    sel = MENU_ITEMS[menu_index]
-                    await lcd.clear_screen()
-                    await lcd_line(lcd, 0, f"Run: {sel}")
-                    in_menu = False
-                    menu_index = 0
-                    # UI won't crash even if routine errors
-                    asyncio.create_task(_run_mode(sel, lcd))
+            if menu_active:
+                DATA.ui_mode = STATE_PRECHARGE  # not used, but stored
+                await show_menu(lcd, menu_index)
+            else:
+                DATA.ui_mode = STATE_WAITING
+                await show_status(lcd)
+                DATA.ui_needs_update = False
+            continue
 
-        await asyncio.sleep_ms(200)
+        # ---------- MENU NAVIGATION ----------
+        if menu_active:
 
-# separate routine runner
-async def _run_mode(sel, lcd):
-    try:
-        if sel == "Precharge Test":
-            from pmu_preactor_standalone import run as pre
-            await pre(DATA, pmu_can.CAN1, lcd)
-        elif sel == "Crank Engine":
-            from pmu_crank_io import run as crank
-            await crank(DATA, pmu_can.CAN1, lcd)
-        elif sel == "PID Regen":
-            from pmu_pid_regen import run as pid
-            await pid(pmu_can.CAN1, DATA, lcd)
+            if evt == "u":
+                menu_index = (menu_index - 1) % len(MENU)
+                await show_menu(lcd, menu_index)
 
-    except Exception as e:
-        print("UI mode error:", sel, e)
+            elif evt == "d":
+                menu_index = (menu_index + 1) % len(MENU)
+                await show_menu(lcd, menu_index)
+
+            elif evt == "e":
+                # Send command to FSM
+                if menu_index == 0:
+                    DATA.state = STATE_PRECHARGE
+                elif menu_index == 1:
+                    DATA.state = STATE_CRANK
+                elif menu_index == 2:
+                    DATA.state = STATE_REGEN
+
+                # Exit menu
+                menu_active = False
+                DATA.ui_mode = STATE_WAITING
+                DATA.ui_needs_update = True
+                continue
+
+        await asyncio.sleep_ms(20)

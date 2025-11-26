@@ -5,6 +5,6 @@ import time
 p = Pin('X2', Pin.OUT_PP)
 
 # Toggle the pin
-p.high()   # Set pin high
+#p.high()   # Set pin high
 #time.sleep(1)
-#p.low()    # Set pin low
+p.low()    # Set pin low
