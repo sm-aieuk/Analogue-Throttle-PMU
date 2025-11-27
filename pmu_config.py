@@ -30,6 +30,7 @@ STATE_CRANK   = const(1)
 STATE_COAST   = const(2)
 STATE_REGEN   = const(3)
 STATE_PRECHARGE = const(4)
+UI_MODE_LCD = 99
 
 
 # ======================================================
@@ -84,6 +85,16 @@ class PMUData:
         "ui_mode",
         "ui_button",
         "state_txt",
+        
+        #LCD
+        "lcd_contrast",
+        "lcd_backlight",
+        
+        #PID Setpoint
+        "pid_setpoint",
+        
+        #MISC
+        "regen_abort",
     )
 
     # ---------------------------------------------------
@@ -153,6 +164,17 @@ class PMUData:
         self.ui_mode = STATE_WAITING   # Current UI mode / screen
         self.ui_button = 0
         self.state_txt = "WAIT"
+        
+        #LCD
+        self.lcd_contrast = 128
+        self.lcd_backlight = 5
+        
+        #PID Setpoint
+        self.pid_setpoint = 48.0  # default PID target voltage
+        
+        #MISC
+        self.regen_abort = False
+
 
     def snapshot(self):
         return (
@@ -164,6 +186,24 @@ class PMUData:
             self.gen_power_w,
             self.fault_active, self.last_emcy_code
         )
+
+    def save_settings(self):
+        try:
+            with open("/sd/pmu_settings.txt", "w") as f:
+                f.write(f"{self.lcd_contrast},{self.lcd_backlight},{self.pid_setpoint}\n")
+        except Exception as e:
+            print("Save settings error:", e)
+
+
+    def load_settings(self):
+        try:
+            with open("/sd/pmu_settings.txt") as f:
+                c, b, p = f.read().strip().split(",")
+                self.lcd_contrast  = int(c)
+                self.lcd_backlight = int(b)
+                self.pid_setpoint  = float(p)   # <-- FIXED
+        except:
+            pass
 
 
 # Global instance

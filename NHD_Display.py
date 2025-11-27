@@ -77,7 +77,24 @@ class NHD_0420D3Z_I2C:
             if not ok:
                 return
             await asyncio.sleep_ms(1)
+    async def set_contrast(self, level):
+        """
+        Set contrast level: 0–255.
+        """
+        level = max(0, min(255, level))
+        # 0x52 = contrast command for NHD 4x20 displays
+        await self._cmd(0x52, level)
+        await asyncio.sleep_ms(2)
 
-    async def set_backlight_brightness(self, level):
-        if 1 <= level <= 8:
-            await self._cmd(0x53, level)
+
+    async def set_backlight(self, level):
+        """
+        Set backlight brightness: 1–8 typical for NHD.
+        Some models use command 0x53, others 0xD0..0xD1.
+        We try both.
+        """
+        level = max(1, min(8, level))
+        # Try official backlight command
+        await self._cmd(0x53, level)
+        await asyncio.sleep_ms(2)
+

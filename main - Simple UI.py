@@ -91,10 +91,10 @@ async def pmu_fsm(CAN1_PORT):
 
     STATE_NAMES = {
         STATE_WAITING: "WAIT",
-        STATE_PRECHARGE: "PRE-CHG",
-        STATE_CRANK: "CRANK",
-        STATE_COAST: "COAST",
-        STATE_REGEN: "REGEN",
+        STATE_PRECHARGE: "PCHG",
+        STATE_CRANK: "CRNK",
+        STATE_COAST: "COST",
+        STATE_REGEN: "RGN",
     }
 
     while True:
@@ -102,11 +102,6 @@ async def pmu_fsm(CAN1_PORT):
         # Update UI text and request status refresh
         DATA.state_txt = STATE_NAMES.get(DATA.state, "UNK")
         DATA.ui_needs_update = True
-
-        if DATA.regen_abort and DATA.state == STATE_REGEN:
-            print("FSM: Regen aborted → WAITING")
-            DATA.state = STATE_WAITING
-            continue
 
         # ---------- WAITING ----------
         if DATA.state == STATE_WAITING:
@@ -152,9 +147,6 @@ async def pmu_fsm(CAN1_PORT):
 
             DATA.state = STATE_WAITING
             continue
-        
-        
-
 
         # Safety default
         DATA.state = STATE_WAITING
@@ -183,12 +175,12 @@ async def main():
     print("Initialising LCD early…")
     lcd = NHD_0420D3Z_I2C()
     DATA.lcd = lcd
-
+    
     DATA.ui_button = None
     DATA.ui_needs_update = True
 
 
-    DATA.load_settings() #LCD at the moment
+
 
 
     print("Starting CAN1/CAN2…")
@@ -220,7 +212,7 @@ async def main():
 
     # ADC
     print("Starting ADC…")
-#    asyncio.create_task(DATA.adc_mgr.task())
+    asyncio.create_task(DATA.adc_mgr.task())
 
     # Logger
     print("Starting logger…")
