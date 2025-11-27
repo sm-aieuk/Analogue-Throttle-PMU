@@ -47,7 +47,7 @@ class PMUData:
 
         # Power
         "dc_bus_v", "battery_v", "battery_i",
-        "gen_torque_nm", "gen_power_w",
+        "gen_torque_nm", "gen_power_w", "batt_nominal_v",
 
         # Inverter TPDO data
         "id_target", "iq_target",
@@ -118,6 +118,7 @@ class PMUData:
         self.gen_torque_nm = 0
         self.gen_power_w = 0
         self.regen_pct = 0
+        self.batt_nominal_v = 56
 
         # TPDO fields
         self.id_target = 0

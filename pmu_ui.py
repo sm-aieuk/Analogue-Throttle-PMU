@@ -110,7 +110,7 @@ async def show_precharge_screen(lcd):
 
     # Line 1: DC-link voltage
     await lcd.set_cursor(1, 0)
-    await lcd.write_string(pad("Vdc: %.1fV" % DATA.dc_bus_v))
+    await lcd.write_string(pad("Vdc: %.1fV" % DATA.battery_v))
 
     # Line 2: inverter online + fault flag
     inv_txt = "ON" if getattr(DATA, "gen4_online", False) else "OFF"
@@ -298,10 +298,20 @@ async def ui_task(lcd):
         # FSM/UI-triggered repaint (rate-limited)
         now = time.ticks_ms()
         if (
-            DATA.ui_needs_update
-            and not menu_active
-            and time.ticks_diff(now, last_update_ms) >= UPDATE_INTERVAL_MS
+            time.ticks_diff(now, last_update_ms) >= UPDATE_INTERVAL_MS
+            and DATA.ui_mode in (
+                UI_MODE_STATUS,
+                UI_MODE_PRECHARGE,
+                UI_MODE_CRANK,
+                UI_MODE_PID,
+                UI_MODE_LCD,
+            )
         ):
+
+            
+            
+            
+            
             #print("Repaint")
 
             if DATA.ui_mode == UI_MODE_PRECHARGE:
@@ -314,7 +324,17 @@ async def ui_task(lcd):
                 await show_pid_screen(lcd)
 
             elif DATA.ui_mode == UI_MODE_LCD:
-                await show_lcd_settings(lcd, DATA.lcd_contrast, DATA.lcd_backlight)
+
+                if lcd_page == 0:
+                    await show_lcd_contrast(lcd, DATA.lcd_contrast)
+
+                elif lcd_page == 1:
+                    await show_lcd_backlight(lcd, DATA.lcd_backlight)
+
+                else:
+                    # fallback (should never happen)
+                    await show_lcd_settings(lcd, DATA.lcd_contrast, DATA.lcd_backlight)
+
 
             else:
                 # UI_MODE_STATUS
@@ -461,6 +481,7 @@ async def ui_task(lcd):
 
                 elif lcd_page == 1:
                     # EXIT + SAVE
+                    lcd_page = 0
                     DATA.save_settings()
                     DATA.ui_mode = UI_MODE_STATUS
                     await lcd.clear_screen()

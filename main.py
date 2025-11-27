@@ -117,7 +117,10 @@ async def pmu_fsm(CAN1_PORT):
         if DATA.state == STATE_PRECHARGE:
             print("FSM: Precharge start")
 
-            if DATA.dc_bus_v < (0.85 * DATA.battery_v):
+            print("Threshold = ",(0.85 * DATA.batt_nominal_v))
+            print("DC Bus = ",(DATA.battery_v))
+            
+            if DATA.battery_v < (0.85 * DATA.batt_nominal_v):
                 await pmu_preactor_standalone.run(DATA, CAN1_PORT, DATA.lcd)
 
             print("FSM: Precharge done → COAST")
@@ -220,7 +223,7 @@ async def main():
 
     # ADC
     print("Starting ADC…")
-#    asyncio.create_task(DATA.adc_mgr.task())
+    asyncio.create_task(DATA.adc_mgr.task())
 
     # Logger
     print("Starting logger…")
@@ -268,3 +271,4 @@ async def main():
 # BOOT
 # ----------------------------------------------------------------------------
 asyncio.run(main())
+

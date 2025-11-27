@@ -40,7 +40,7 @@ CFG = {
     "max_close_ms":    8000,
     "ratio_floor_v":   12.0,
     "ratio_frac":      0.8,
-    "batt_nominal_v":  67.23,
+    
 }
 
 try:
@@ -56,7 +56,7 @@ async def run(DATA, can, lcd=None):
 
         # Set throttle to neutral
     try:
-        await set_throttle_voltage(4.0)   # or whatever your neutral is
+        await set_throttle_voltage(1.0)   # Set to keep Sevcon happy at startup
         print("Setting throttle to 4V at start")
     except Exception as e:
         print("PRECHARGE: couldn't set neutral throttle:", e)
@@ -71,7 +71,7 @@ async def run(DATA, can, lcd=None):
     PIN_PRE.high()
     print(" → precharge relay ON")
 
-    vbatt_nom = CFG["batt_nominal_v"]
+    vbatt_nom = DATA.batt_nominal_v
     floor_v   = CFG["ratio_floor_v"]
     ratio_req = CFG["ratio_frac"]
     t0        = time.ticks_ms()
